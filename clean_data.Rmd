@@ -1,0 +1,55 @@
+---
+title: "GR5291_final_proj"
+author: "Qingyin Ge"
+date: "4/5/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Cleaning the data
+```{r}
+library(tidyverse)
+Spotify2000 <- read.csv("Spotify-2000.csv")
+Spotify2010 <- read.csv("Spotify-2010.csv")
+```
+
+```{r}
+colnames(Spotify2010) <- colnames(Spotify2000)
+#str(Spotify2010)
+#str(Spotify2000)
+Spotify00 <- Spotify2000 %>% mutate(Length..Duration. = as.integer(Length..Duration. ), 
+                                    Title = as.character(Title), 
+                                    Artist = as.character(Artist), 
+                                    Top.Genre = as.character(Top.Genre))
+str(Spotify00)
+table(Spotify00$Year)
+Spotify10 <- Spotify2010 %>% mutate(Length..Duration. = as.integer(Length..Duration. ), 
+                                    Title = as.character(Title), 
+                                    Artist = as.character(Artist), 
+                                    Top.Genre = as.character(Top.Genre))
+str(Spotify10)
+table(Spotify10$Year)
+```
+
+
+
+```{r}
+spotify <- rbind(Spotify00, Spotify10)
+spotify <- spotify %>% mutate(Index = 1:length(spotify$Title)) %>% 
+  mutate(Title = factor(Title, levels = unique(Title)),
+         Artist = factor(Artist, levels = unique(Artist)),
+         Top.Genre = factor(Top.Genre, levels = unique(Top.Genre)),
+         Year = factor(Year, levels = unique(Year)))
+#head(spotify)
+#tail(spotify)
+#dim(spotify)
+#str(spotify)
+#spotify$Title[!(duplicated(spotify$Title))]
+Spotify <- spotify[!duplicated(spotify$Title), ]
+str(Spotify)
+colnames(Spotify) <- c("Index","Title","Artist","Top.Genre","Year","BPM", "Energy","Danceability","Loudness","Liveness","Valence", "Duration","Acousticness","Speechiness","Popularity")
+write.csv(Spotify, "Spotify.csv")
+```

@@ -1,0 +1,635 @@
+---
+title: "GR5291_final_proj"
+author: "Qingyin Ge"
+date: "4/5/2020"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data Overview
+## Filter Data
+
+Since we have too many genres, we decide to gather them into 8 main genres: pop, rock, soul, metal, adult standards, folk, wave, and other.
+```{r}
+library(tidyverse)
+Spotify <- read.csv("Spotify.csv")[,-1] %>% mutate(Year = factor(Year))
+nrow(Spotify)
+
+#sort(table(Spotify$Top.Genre))
+genres <- c("pop", "rock", "soul", "metal", "adult standards", "folk", "wave")
+Spotify.genre <- as.character(Spotify$Top.Genre)
+for (g in genres){
+  tf = str_detect(Spotify.genre, g)
+  Spotify.genre[tf] <- g
+}
+Spotify.genre[(!(Spotify.genre %in% genres))] <- "other"
+Spotify.genre[1:10]
+Spotify$Top.Genre <- factor(Spotify.genre, levels = unique(Spotify.genre))
+```
+
+## Split Training and Test data
+
+```{r}
+set.seed(20200405)
+train.index <- sample(1:length(Spotify$Index), 2000)
+spotify.train <- Spotify[train.index,-match("Index", colnames(Spotify))]
+spotify.test <- Spotify[-train.index,-match("Index", colnames(Spotify))]
+```
+
+
+## Plot
+```{r}
+head(spotify.train)
+str(spotify.train)
+
+foo <- levels(spotify.train$Year)
+#sort(foo)
+spotify.train$Year <- factor(spotify.train$Year, levels=sort(foo))
+rm(foo)
+
+foo <- c("pop", "rock", "soul", "metal", "adult standards", "folk", "wave", "other")
+spotify.train$Top.Genre <- factor(spotify.train$Top.Genre, levels=foo)
+rm(foo)
+
+library(highcharter)
+plot(density(spotify.train$Popularity), main = "Popularity Density Plot")
+hcboxplot(x = spotify.train$Popularity, var = spotify.train$Year, outliers = FALSE) %>% 
+  hc_chart(type = "column") %>%
+  hc_title(text = "Popularity v.s. Year")
+hcboxplot(x = spotify.train$Popularity, var = spotify.train$Top.Genre, outliers = FALSE) %>% 
+  hc_chart(type = "column") %>%
+  hc_title(text = "Popularity v.s. Genres")
+#boxplot(Popularity ~ Year, data = spotify.train, main = "Popularity v.s. Year")
+#boxplot(Popularity ~ Top.Genre, data = spotify.train, main = "Popularity v.s. Genres")
+
+par(mfrow = c(3,3))
+for (j in 5:(ncol(spotify.train)-1)){
+  hist(spotify.train[,j], main = paste("Histogram of", colnames(spotify.train)[j]), xlab = "value")
+}
+
+library(corrplot)
+#png(file="corr.png", res=300, width=1600, height=1600)
+corrplot(cor(spotify.train[,5:14]), method="color", title = "correlation between each numeric features", tl.col="black", tl.cex=0.8, tl.srt=70)
+#dev.off()
+```
+
+### Top 20 songs by Popularity
+```{r}
+library(tidyverse)
+spotify.popularity <- spotify.train %>%
+  dplyr::select(Title, Popularity, Artist) %>%
+  group_by(Artist, Title, Popularity)%>%
+  arrange(desc(Popularity))%>%
+  head(20) 
+
+hc1 <- highchart() %>% 
+  hc_chart(polar = T) %>%
+  hc_title(text = "Top 20 Songs") %>%
+  hc_xAxis(categories = spotify.popularity$Artist) %>% 
+  hc_yAxis(min = 70) %>%
+  hc_series(list(name = "Popularity", data = spotify.popularity$Popularity, type = "line"))
+  
+hc1
+
+```
+
+### Top 20 Artist/Songs in Year 2019
+```{r}
+spotify.song <- spotify.train %>%
+  dplyr::select(Title, Popularity, Artist, Top.Genre, Year) %>%
+  group_by(Year, Artist)%>%
+  arrange(desc(Popularity))%>%
+  dplyr::filter((Year) == 2019) %>%
+  head(20) 
+
+hc2 <- highchart() %>% 
+  hc_chart(polar = T) %>%
+  hc_title(text = "Top 20 Songs & Artist in 2019") %>%
+  hc_xAxis(categories = spotify.song$Title) %>%
+  hc_yAxis(min = 70) %>%
+  hc_series(list(name = "Popularity", data = spotify.song$Popularity, type = "line"))
+  
+hc2
+
+```
+
+### Top 20 Artist/Songs in Pop Genre
+
+```{r}
+spotify.Genre <- spotify.train %>%
+  dplyr::select(Title, Popularity, Artist, Top.Genre, Year) %>%
+  group_by(Top.Genre, Artist)%>%
+  arrange(desc(Popularity))%>%
+  dplyr::filter(Top.Genre == "pop") %>%
+  head(20) 
+
+hc3 <- highchart() %>% 
+  hc_chart(polar = T) %>%
+  hc_title(text = "Top 20 Songs & Artist in Pop Genre") %>%
+  hc_xAxis(categories = spotify.Genre$Title) %>% 
+  hc_yAxis(min = 70) %>%
+  hc_series(list(name = "Popularity", data = spotify.Genre$Popularity, type = "line"))
+  
+hc3
+
+```
+
+### Top 20 Artist 
+```{r}
+spotify.Artist <- spotify.train %>%
+  dplyr::select(Popularity, Artist) %>%
+  group_by(Artist)%>%
+  mutate(mean_pop = sum(Popularity)/n()) %>%
+  distinct(Artist, mean_pop) %>%
+  arrange(desc(mean_pop))%>%
+  head(20) 
+
+hc0 <- highchart() %>% 
+  hc_chart(polar = T) %>%
+  hc_title(text = "Top 20 Artist") %>%
+  hc_xAxis(categories = spotify.Artist$Artist) %>% 
+  hc_yAxis(min = 70) %>%
+  hc_series(list(name = "Popularity", data = spotify.Artist$mean_pop, type = "line"))
+  
+hc0
+
+```
+
+
+### Each Genre change in Year
+
+```{r}
+top_genre <- spotify.train %>%
+  dplyr::select(Top.Genre, Popularity, Year) %>%
+  group_by(Top.Genre, Year) %>%
+  arrange(desc(Popularity)) %>%
+  dplyr::filter(Popularity >= 50)
+
+library(treemap)
+library(viridisLite)
+#png(filename="treemap.png",width=1600, height=1200)
+tm1 <- treemap(top_genre, index = c("Year", "Top.Genre"),
+              vSize = "Popularity", vColor = "Year", palette = viridis(5),
+              align.labels=list(c("center", "center"), c("right", "bottom")))
+
+#dev.off()
+```
+
+### Popularity change in Year
+```{r}
+pop.in.year <- spotify.train %>%
+  dplyr::select(Popularity,Year) %>%
+  group_by(Year)%>%
+  summarise(mean_pop = mean(Popularity))
+
+hc4 <- highchart() %>% 
+  hc_chart(type = "line") %>%
+  hc_title(text = "Popularity change in Year") %>%
+  hc_xAxis(categories = pop.in.year$Year) %>% 
+  hc_series(list(name = "Mean Popularity", data = pop.in.year$mean_pop))
+  
+hc4
+
+```
+
+### Popularity in different Genres
+
+```{r}
+pop.in.genre <- spotify.train %>%
+  dplyr::select(Popularity,Top.Genre) %>%
+  group_by(Top.Genre)%>%
+  summarise(mean_pop = mean(Popularity))
+
+hc5 <- highchart() %>% 
+  hc_chart(type = "column") %>%
+  hc_title(text = "Popularity in Different Genres") %>%
+  hc_xAxis(categories = pop.in.genre$Top.Genre) %>% 
+  hc_series(list(name = "Mean Popularity", data = pop.in.genre$mean_pop))
+  
+hc5
+
+```
+
+### How many songs are there in each genre?
+
+```{r}
+dist.genre <- spotify.train %>%
+  group_by(Top.Genre)%>%
+  summarise(n = n())
+
+hc6 <- highchart() %>% 
+  hc_chart(type = "pie") %>%
+  hc_title(text = "Genres Distribution") %>%
+  hc_xAxis(categories = dist.genre$Top.Genre) %>% 
+  hc_add_series_labels_values(dist.genre$Top.Genre, dist.genre$n, type = "pie")
+
+  
+hc6
+
+```
+
+### How do those numeric variable influence populaity?
+```{r}
+library(GGally)
+data.toplot <- spotify.train %>% dplyr::select(BPM, Energy, Danceability, Loudness, Liveness, Valence, Duration, Acousticness, Speechiness, Popularity)
+ggpairs(data.toplot, progress = F) 
+```
+
+# Data Analysis
+## Whether difference exists between each genres?
+
+```{r}
+n.genre <- with(spotify.train, tapply(Popularity, Top.Genre, length))
+Avg.genre <- with(spotify.train, tapply(Popularity, Top.Genre, mean))
+SD.genre <- with(spotify.train, tapply(Popularity, Top.Genre, sd))
+min.genre <- with(spotify.train, tapply(Popularity, Top.Genre, min))
+max.genre <- with(spotify.train, tapply(Popularity, Top.Genre, max))
+round(cbind(n.genre, Avg.genre, SD.genre, min.genre, max.genre), 2)
+
+hcboxplot(x = spotify.train$Popularity, var = spotify.train$Top.Genre, outliers = FALSE) %>% 
+  hc_chart(type = "column") %>%
+  hc_title(text = "Popularity v.s. Genres")
+```
+We assume:   
++  The population have normal distributions
++  The population standard deviations are all the same
++  Observations within each sample are independent of each other
++  Observations in each sample are independent of observations in others
+
+### F-test          
+We use F-test here. Null hypothesis is *There is no difference in popularity between each genre, i.e. $\mu_0 = \mu_1 = ... = \mu_8$* and alternative is *At least one group is different, i.e. at least one $\mu_i$ is not equal*. 
+
+```{r}
+## Reduced model:
+reduced.genre <- lm(Popularity~1, data = spotify.train)
+full.genre <- lm(Popularity ~ Top.Genre, data = spotify.train)
+anova(reduced.genre, full.genre)
+```
+Since the p-value of one way ANOVA is 3.4e-11 which is way smaller than 0.01, therefore we conclude that the mean of popularity is different between each genre.   
+From the chart we know highest average popularity belongs to soul genre and lowest average popularity belongs to other genre. So we want to construct bonferroni confidence interval for mean difference of these two groups. 
+
+### Bonferroni
+```{r}
+diff.genre.b <- Avg.genre[3] - Avg.genre[8]
+t.genre.b <- qt(1 - 0.05/16, df=sum(n.genre)-8)
+foo <- rep(NA, 8)
+for (i in 1:8){
+  foo[i] = (n.genre[i] - 1) * SD.genre[i]^2
+}
+s_p.genre.b <- sqrt(sum(foo)/sum(n.genre - 1))
+rm(foo)
+bonf.low <- diff.genre.b - t.genre.b * s_p.genre.b * sqrt(1/n.genre[3] + 1/n.genre[8])
+bonf.high <- diff.genre.b + t.genre.b * s_p.genre.b * sqrt(1/n.genre[3] + 1/n.genre[8])
+unname(bonf.low)
+unname(bonf.high)
+```
+The 95% simutaneous confidence interval is (3.7, 18.1), which doesn't include 0 inside. So we may also conslude that the mean popularity of the 8 different genres are different. Moreover, we have 95% confidence to say that the mean popularity of soul genre is between 3.7 and 18.1 higher than other genre.
+We now would like to know which ones are different among these group means for different genres.
+
+### Pairwise t-test: holm adjustment
+The Holm adjustment sequentially compares the lowest p-value with a Type I error rate that is reduced for each consecutive test. This method is generally considered superior to the Bonferroni adjustment,
+```{r}
+pairwise.t.test(spotify.train$Popularity, spotify.train$Top.Genre, p.adj = "holm")
+```
+Now we can tell that mean popularity of other genre is statistically different from that of other genres, except for folk genre and wave genre; while we don't have enough evidence to compare the mean popularity of folk and other, and wave and other. There is also significant evidence suggest that mean popularity of metal is different from rock genre. 
+
+### Tukey's HSD procedure
+```{r}
+t <- as.data.frame((TukeyHSD(aov(Popularity ~ Top.Genre, spotify.train)))$Top.Genre)
+as.matrix(t[(as.data.frame((TukeyHSD(aov(Popularity ~ Top.Genre, spotify.train)))$Top.Genre)$`p adj`) < 0.01,])
+```
+From the Tukey's HSD method we see that mean popularity for other genre is 5.73 lower than that of pop genre; mean popularity for other genre is 4.33 lower than that of rock genre; mean popularity for other genre is 10.92 lower than that of soul genre; mean popularity for other genre is 10.43 lower than that of metal genre; mean popularity for other genre is 6.39 lower than that of adult standards genre
+
+## Mean popularity change by year?
+
+```{r}
+n.year <- with(spotify.train, tapply(Popularity, Year, length))
+Avg.year <- with(spotify.train, tapply(Popularity, Year, mean))
+SD.year <- with(spotify.train, tapply(Popularity, Year, sd))
+table.year <- round(cbind(n.year, Avg.year, SD.year), 2)
+table.year
+
+hcboxplot(x = spotify.train$Popularity, var = spotify.train$Year, outliers = FALSE) %>% 
+  hc_chart(type = "column") %>%
+  hc_title(text = "Popularity v.s. Year")
+
+hc4
+```
+
+```{r}
+library(tseries)
+library(forecast)
+library(rugarch)
+x <- ts(pop.in.year[,2], start = 1958, frequency = 1)
+acf(x)
+title("Popularity Sample ACF Plot", line = 0.5)
+pacf(x)
+title("Popularity Sample PACF Plot", line = 0.5)
+
+## almost stationary timeseries
+kpss.test(x)  ## p-value = 0.018
+
+auto.arima(x, max.p = 10, max.q = 10, ic = "aic", trace = F)
+
+## We see that auto.arima and sample plot provide very different results. We try both.
+ts.fit.arima <- arima(x, c(1,1,2))
+ts.fit.arima
+pred.arima <- predict(ts.fit.arima, n.ahead = 5)
+
+ts.fit.plot <- arima(x, c(1,0,6))
+ts.fit.plot
+pred.plot <- predict(ts.fit.plot, n.ahead = 5)
+plot(ts.fit.arima)
+plot(ts.fit.plot)
+
+ts.plot(x, pred.arima$pred, pred.plot$pred, lty = c(1,2,3), col=c(4,2,1), main = "time series plot and predicted value")
+legend("top", legend=c("arima prediction", "plot prediction"), col=c("red", "black"), lty=2:3, cex=0.8)
+
+f1 <- forecast(ts.fit.arima, h = 5, level = 95)
+hchart(f1) %>% hc_title(text = "Time series prediction with ARIMA(1,1,2) and corrresponding confidence interval")
+f2 <- forecast(ts.fit.plot, h = 5, level = 95)
+hchart(f2) %>% hc_title(text = "Time series prediction with ARIMA(1,0,6) and corrresponding confidence interval")
+```
+
+
+
+## Numerical features affect popularity?
+### Normality
+```{r}
+shapiro.test(spotify.train$Popularity)
+qqnorm(spotify.train$Popularity, main = "Normal QQ plot for Popularity")
+qqline(spotify.train$Popularity)
+library(e1071)
+skewness(spotify.train$Popularity)
+```
+
+From both Shapiro-Wilk normality test and normal QQ plot, we reject the hypothesis that the Popularity is normally distributed. It is rather skewed left. However, we believe that in population, the distribution is approximately normal. Since we only got top songs for each year, it is certain that our data are left skewed. We decide to ignore the non-normality appeared in sample data.
+
+### General fit
+```{r}
+
+fct_count(spotify.train$Year)
+year.numeric <- fct_collapse(spotify.train$Year,
+  centry20 = c("1956", "1958", "1959", 
+            "1960", "1961", "1962", "1963", "1964", "1965", "1966", "1967", "1968", "1969",
+            "1970", "1971", "1972", "1973", "1974", "1975", "1976", "1977", "1978", "1979",
+            "1980", "1981", "1982", "1983", "1984", "1985", "1986", "1987", "1988", "1989",
+            "1990", "1991", "1992", "1993", "1994", "1995", "1996", "1997", "1998", "1999"),
+  centry21 = c("2000", "2001", "2002", "2003", "2004", "2005", "2006", "2007", "2008", "2009",
+               "2010", "2011", "2012", "2013", "2014", "2015", "2016", "2017", "2018", "2019")
+)
+spotify.numeric <- spotify.train %>% mutate(Year = year.numeric) %>% dplyr::select(-c(Title, Artist, Top.Genre))
+colnames(spotify.numeric)
+model.full <- lm(Popularity ~ ., data = spotify.numeric)
+summary(model.full)
+```
+
+### Model Selection
+```{r}
+model.0 <- lm(Popularity ~ 1, data = spotify.numeric)
+scope = list(lower = formula(model.0), upper = formula(model.full))
+model.selected <- step(model.full, direction = "both", scope = scope, trace = 0)
+summary(model.selected)
+confint(model.selected)
+```
+
+Now based on model selection, we choose Year(factor), Energy, Dancebility, Loudness, Liveness, Acousticness, Sppechiness as our predictors, and we see from the summary that all of the predictors are statistically significant, with p-value way smaller than 0.01. To ensure this model is enough compare with full model, and definitely better than null model, we perform F-test.
+
+```{r}
+anova(model.0, model.selected)
+anova(model.selected, model.full)
+```
+
+with first anova p-value = 2.2e-16, second anova p-value = 0.83, we conclude that this model is properly good. Our model for now is:
+$$Popularity = 77.45 - 5.51 Centry21 - 0.13 Energy + 0.15 Danceability + 1.48 Loudness - 0.11 Liveness - 0.04 Acousticness + 0.25 Speechiness$$, with 95% confidence interval as above.
+
+### Model diagnostic
+```{r}
+par(mfrow = c(2,2))
+plot(model.selected)
+library(car)
+outlierTest(model.selected)
+infIndexPlot(model.selected)
+```
+
+First, from residual v.s. fitted value plot and scale-location plot, we see that the cloud of points centered in the middle and equally spread along with both sides of $\hat{e} = 0$ horizontal line, so we conclude that this model dit data well with homoskedasticity.   
+Second, from normal QQ plot we see that the standardized residuals and theoretical quantiles follow almost a straight 45-degree line passthing through 1-3 quadrant. Therefore, our model doesn't violate normality assumption.   
+Third, the residuals v.s. leverage plot indicates case 1282, case 1099, and case 1548 might be high leverage and outliers. We should validate it with more plots and tests. From outlier test we see that case 1548, case 933, case 1099, case 346 are outliers, especially the first two, with bonferroni p-value < 0.01. So we may delete those cases and fit our model again. Moreover, case 811 and 1817 are high leverage. 
+
+```{r}
+model.linear <- lm(formula(model.selected), data = spotify.numeric[-c(1548, 1099, 933, 346),])
+summary(model.linear)
+```
+
+Multiple R^2 is improved a little bit so we decide to keep this model. We now evaluate the model performance on the test set. 
+
+```{r}
+head(spotify.test)
+spotify.test0 <- spotify.test %>% mutate(Year = fct_collapse(Year,
+  centry20 = c("1956", "1958", "1959", 
+            "1960", "1961", "1962", "1963", "1964", "1965", "1966", "1967", "1968", "1969",
+            "1970", "1971", "1972", "1973", "1974", "1975", "1976", "1977", "1978", "1979",
+            "1980", "1981", "1982", "1983", "1984", "1985", "1986", "1987", "1988", "1989",
+            "1990", "1991", "1992", "1993", "1994", "1995", "1996", "1997", "1998", "1999"),
+  centry21 = c("2000", "2001", "2002", "2003", "2004", "2005", "2006", "2007", "2008", "2009",
+               "2010", "2011", "2012", "2013", "2014", "2015", "2016", "2017", "2018", "2019"))) %>% dplyr::select(-c(Title, Artist, Top.Genre))
+
+MSE.test <- sum((spotify.test0$Popularity - predict(model.linear, spotify.test0))^2)/nrow(spotify.test0)
+spotify.result <- spotify.test %>% dplyr::select(Title, Artist, Top.Genre, Popularity) %>% 
+  mutate("Predict popularity" = predict(model.linear, spotify.test0))
+
+plot(sort(spotify.test0$Popularity), type = "l", col = "black", xlab = "case", ylab = "popularity", 
+     main = "True Popularity v.s. Predicted Popularity Using Numeric Features")
+lines(c(1:nrow(spotify.test0)), predict(model.linear, spotify.test0)[match(sort(spotify.test0$Popularity), spotify.test0$Popularity)], type = "l", col = "red")
+```
+
+We find that this give us really bad result, we actually cannot predict popularity well since our model only explain 12% variation. 
+
+What about fit polynomial regression?
+```{r}
+head(spotify.numeric)
+model.poly <- lm(Popularity ~ Year + poly(BPM,2) + poly(Energy,2) + poly(Danceability,2) + poly(Loudness,2) + poly(Liveness,2) + poly(Valence,2) + poly(Duration,2) + poly(Acousticness,2) + poly(Speechiness,2), data = spotify.numeric)
+summary(model.poly)
+
+model.selected.poly <- step(model.poly, direction = "backward", trace = 0)
+summary(model.selected.poly)
+confint(model.selected.poly)
+
+```
+
+We realize that when we fit polynomial regression, the result is still not satisfied. In order to understand why this is the case, we try to fit non-parametric regression, which allow computer fid the proper model itself.   
+
+We now try to use other regression methods. For example, Loess Method and Kernel Method
+```{r}
+head(spotify.numeric)
+str(spotify.numeric)
+
+for (i in 2:10){
+  plot(x = spotify.numeric[,i], y = spotify.numeric$Popularity, xlab = colnames(spotify.numeric)[i])
+}
+
+
+
+```
+
+
+```{r}
+## Kernel smoothing
+head(spotify.numeric)
+fit.bin1 <- with(spotify.numeric, 
+            ksmooth(BPM, Popularity, kernel = "normal", bandwidth = 5))
+spotify.numeric %>% mutate(smooth = fit.bin1$y) %>%
+  ggplot(aes(BPM, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(BPM, smooth), color="red")
+
+fit.bin2 <- with(spotify.numeric, 
+            ksmooth(Energy, Popularity, kernel = "normal", bandwidth = 5))
+spotify.numeric %>% mutate(smooth = fit.bin2$y) %>%
+  ggplot(aes(Energy, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Energy, smooth), color="red")
+
+fit.bin3 <- with(spotify.numeric, 
+            ksmooth(Danceability, Popularity, kernel = "normal", bandwidth = 5))
+spotify.numeric %>% mutate(smooth = fit.bin3$y) %>%
+  ggplot(aes(Danceability, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Danceability, smooth), color="red")
+
+fit.bin4 <- with(spotify.numeric, 
+            ksmooth(Loudness, Popularity, kernel = "normal", bandwidth = 5))
+spotify.numeric %>% mutate(smooth = fit.bin4$y) %>%
+  ggplot(aes(Loudness, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Loudness, smooth), color="red")
+
+fit.bin5 <- with(spotify.numeric, 
+            ksmooth(Liveness, Popularity, kernel = "normal", bandwidth = 5))
+spotify.numeric %>% mutate(smooth = fit.bin5$y) %>%
+  ggplot(aes(Liveness, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Liveness, smooth), color="red")
+
+fit.bin6 <- with(spotify.numeric, 
+            ksmooth(Valence, Popularity, kernel = "normal", bandwidth = 5))
+spotify.numeric %>% mutate(smooth = fit.bin6$y) %>%
+  ggplot(aes(Valence, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Valence, smooth), color="red")
+
+fit.bin7 <- with(spotify.numeric, 
+            ksmooth(Duration, Popularity, kernel = "normal", bandwidth = 5))
+spotify.numeric %>% mutate(smooth = fit.bin7$y) %>%
+  ggplot(aes(Duration, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Duration, smooth), color="red")
+
+fit.bin8 <- with(spotify.numeric, 
+            ksmooth(Acousticness, Popularity, kernel = "normal", bandwidth = 5))
+spotify.numeric %>% mutate(smooth = fit.bin8$y) %>%
+  ggplot(aes(Acousticness, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Acousticness, smooth), color="red")
+
+fit.bin9 <- with(spotify.numeric, 
+            ksmooth(Speechiness, Popularity, kernel = "normal", bandwidth = 5))
+spotify.numeric %>% mutate(smooth = fit.bin9$y) %>%
+  ggplot(aes(Speechiness, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Speechiness, smooth), color="red")
+
+```
+
+```{r}
+## Loess Method
+fit.loess1 <- loess(Popularity ~ BPM, span = 0.1, data=spotify.numeric, family="symmetric")
+
+spotify.numeric %>% mutate(smooth = fit.loess1$fitted) %>%
+  ggplot(aes(BPM, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(BPM, smooth), color="blue")
+
+fit.loess2 <- loess(Popularity ~ Energy, span = 0.1, data=spotify.numeric, family="symmetric")
+
+spotify.numeric %>% mutate(smooth = fit.loess2$fitted) %>%
+  ggplot(aes(Energy, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Energy, smooth), color="blue")
+
+fit.loess3 <- loess(Popularity ~ Danceability, span = 0.1, data=spotify.numeric, family="symmetric")
+
+spotify.numeric %>% mutate(smooth = fit.loess3$fitted) %>%
+  ggplot(aes(Danceability, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Danceability, smooth), color="blue")
+
+fit.loess4 <- loess(Popularity ~ Loudness, span = 0.4, data=spotify.numeric, family="symmetric")
+
+spotify.numeric %>% mutate(smooth = fit.loess4$fitted) %>%
+  ggplot(aes(Loudness, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Loudness, smooth), color="blue")
+
+fit.loess5 <- loess(Popularity ~ Liveness, span = 0.3, data=spotify.numeric, family="symmetric")
+
+spotify.numeric %>% mutate(smooth = fit.loess5$fitted) %>%
+  ggplot(aes(Liveness, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Liveness, smooth), color="blue")
+
+fit.loess6 <- loess(Popularity ~ Valence, span = 0.1, data=spotify.numeric, family="symmetric")
+
+spotify.numeric %>% mutate(smooth = fit.loess6$fitted) %>%
+  ggplot(aes(Valence, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Valence, smooth), color="blue")
+
+fit.loess7 <- loess(Popularity ~ Duration, span = 0.1, data=spotify.numeric, family="symmetric")
+
+spotify.numeric %>% mutate(smooth = fit.loess7$fitted) %>%
+  ggplot(aes(Duration, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Duration, smooth), color="blue")
+
+fit.loess8 <- loess(Popularity ~ Acousticness, span = 0.3, data=spotify.numeric, family="symmetric")
+
+spotify.numeric %>% mutate(smooth = fit.loess8$fitted) %>%
+  ggplot(aes(Acousticness, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Acousticness, smooth), color="blue")
+
+fit.loess9 <- loess(Popularity ~ Speechiness, span = 0.8, data=spotify.numeric, family="symmetric")
+
+spotify.numeric %>% mutate(smooth = fit.loess9$fitted) %>%
+  ggplot(aes(Speechiness, Popularity)) +
+  geom_point(size = 1, alpha = .5, color = "grey") + 
+  geom_line(aes(Speechiness, smooth), color="blue")   
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
